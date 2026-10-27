@@ -1,21 +1,806 @@
-{
-  "name": "DoceGestão - Custos & Precificação",
-  "short_name": "DoceGestão",
-  "start_url": "./index.html",
-  "display": "standalone",
-  "background_color": "#FAF7F2",
-  "theme_color": "#4A3525",
-  "description": "Sistema de gestão de custos e precificação para confeitarias artesanais.",
-  "icons": [
-    {
-      "src": "https://cdn-icons-png.flaticon.com/512/992/992747.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "https://cdn-icons-png.flaticon.com/512/992/992747.png",
-      "sizes": "512x512",
-      "type": "image/png"
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DoceGestão - Custos & Precificação</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#4A3525">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            creme: '#FAF7F2',
+            cacau: '#4A3525',
+            caramelo: '#C68B59',
+            rosaSuave: '#F7D6D0',
+            rosaDoceria: '#E07A5F'
+          }
+        }
+      }
+    };
+  </script>
+</head>
+<body class="bg-creme text-cacau min-h-screen font-sans">
+  <div class="flex flex-col md:flex-row min-h-screen">
+    
+    <!-- Menu Lateral -->
+    <nav class="w-full md:w-64 bg-cacau text-creme p-5 flex flex-col justify-between shadow-xl shrink-0">
+      <div>
+        <div class="flex items-center space-x-3 mb-8">
+          <i class="fa-solid fa-cake-candles text-2xl text-rosaSuave"></i>
+          <div>
+            <h1 class="font-bold text-lg tracking-wide">DoceGestão</h1>
+            <p class="text-xs text-caramelo">Custos & Precificação</p>
+          </div>
+        </div>
+        <ul class="space-y-2 text-sm font-medium">
+          <li>
+            <button onclick="navegar('dashboard')" id="btn-dashboard" class="w-full flex items-center space-x-3 p-3 rounded-lg bg-caramelo text-white transition">
+              <i class="fa-solid fa-chart-pie w-5"></i>
+              <span>Painel Geral</span>
+            </button>
+          </li>
+          <li>
+            <button onclick="navegar('produtos')" id="btn-produtos" class="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-caramelo/30 transition">
+              <i class="fa-solid fa-cookie-bite w-5"></i>
+              <span>Receitas & Produtos</span>
+            </button>
+          </li>
+          <li>
+            <button onclick="navegar('ingredientes')" id="btn-ingredientes" class="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-caramelo/30 transition">
+              <i class="fa-solid fa-boxes-stacked w-5"></i>
+              <span>Ingredientes</span>
+            </button>
+          </li>
+          <li>
+            <button onclick="navegar('despesas')" id="btn-despesas" class="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-caramelo/30 transition">
+              <i class="fa-solid fa-file-invoice-dollar w-5"></i>
+              <span>Despesas & Rateio</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div id="status-nuvem" class="text-xs text-creme/80 pt-6 border-t border-cacau/50 flex items-center space-x-2">
+        <i class="fa-solid fa-circle-notch fa-spin text-caramelo"></i>
+        <span>Conectando à nuvem...</span>
+      </div>
+    </nav>
+
+    <!-- Conteúdo Principal -->
+    <main class="flex-1 p-4 md:p-8 overflow-y-auto">
+      <div id="app-view"></div>
+    </main>
+  </div>
+
+  <!-- Firebase SDK (App + Firestore) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    const formatBRL = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+
+    // Configuração oficial do seu projeto: alegra-confeitaria
+    const firebaseConfig = {
+      apiKey: "AIzaSyBSv-o2DBNCTZPiaCeUx9gtyyvk-82rYzQ",
+      authDomain: "alegra-confeitaria.firebaseapp.com",
+      projectId: "alegra-confeitaria",
+      storageBucket: "alegra-confeitaria.firebasestorage.app",
+      messagingSenderId: "167078088100",
+      appId: "1:167078088100:web:efd2425a8563725fbc8531",
+      measurementId: "G-ZCPP9P9MEB"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const docRef = db.collection('sistema').doc('confeitaria_db_v4');
+
+    function atualizarStatusNuvem(iconeHtml, texto) {
+      const el = document.getElementById('status-nuvem');
+      if (el) el.innerHTML = `${iconeHtml}<span>${texto}</span>`;
     }
-  ]
-}
+
+    const Armazenamento = {
+      obter() {
+        const dados = localStorage.getItem('confeitaria_db_v4');
+        if (dados) return JSON.parse(dados);
+
+        const dadosIniciais = {
+          ingredientes: [
+            { id: '1', nome: 'Leite Condensado', categoria: 'Laticínios', custoUnit: 0.0164, unMedida: 'g' },
+            { id: '2', nome: 'Chocolate Nobre 50%', categoria: 'Chocolates', custoUnit: 0.045, unMedida: 'g' },
+            { id: '3', nome: 'Manteiga Extra', categoria: 'Laticínios', custoUnit: 0.05, unMedida: 'g' },
+            { id: '4', nome: 'Granulado Belga', categoria: 'Chocolates', custoUnit: 0.07, unMedida: 'g' },
+            { id: '5', nome: 'Forminha 4 Pétalas', categoria: 'Embalagens', custoUnit: 0.12, unMedida: 'un' }
+          ],
+          despesas: [
+            { id: '1', nome: 'Aluguel do Espaço', valor: 1200 },
+            { id: '2', nome: 'Energia Elétrica (Luz)', valor: 350 },
+            { id: '3', nome: 'Água e Esgoto', valor: 100 },
+            { id: '4', nome: 'Gás de Cozinha', valor: 150 },
+            { id: '5', nome: 'Internet & Telefonia', valor: 120 },
+            { id: '6', nome: 'MEI / Contador', valor: 80 }
+          ],
+          config: {
+            unidadesMes: 1000,
+            custoHora: 15.00
+          },
+          produtos: []
+        };
+        localStorage.setItem('confeitaria_db_v4', JSON.stringify(dadosIniciais));
+        return dadosIniciais;
+      },
+      salvar(dados) {
+        localStorage.setItem('confeitaria_db_v4', JSON.stringify(dados));
+        atualizarStatusNuvem('<i class="fa-solid fa-arrows-rotate fa-spin text-caramelo"></i>', 'Salvando na nuvem...');
+
+        docRef.set(dados)
+          .then(() => {
+            atualizarStatusNuvem('<i class="fa-solid fa-cloud-check text-emerald-400"></i>', 'Salvo na nuvem');
+          })
+          .catch((erro) => {
+            console.error('Erro ao salvar no Firebase:', erro);
+            atualizarStatusNuvem('<i class="fa-solid fa-triangle-exclamation text-amber-400"></i>', 'Salvo no aparelho (Ative o Firestore)');
+          });
+      },
+      iniciarSincronizacao() {
+        docRef.onSnapshot((doc) => {
+          if (doc.exists) {
+            const dadosNuvem = doc.data();
+            dadosNuvem.ingredientes = dadosNuvem.ingredientes || [];
+            dadosNuvem.despesas = dadosNuvem.despesas || [];
+            dadosNuvem.produtos = dadosNuvem.produtos || [];
+            dadosNuvem.config = dadosNuvem.config || { unidadesMes: 1000, custoHora: 15.00 };
+
+            estado = dadosNuvem;
+            localStorage.setItem('confeitaria_db_v4', JSON.stringify(estado));
+            renderizar();
+            atualizarStatusNuvem('<i class="fa-solid fa-cloud text-emerald-400"></i>', 'Sincronizado com a nuvem');
+          } else {
+            // Primeiro acesso: envia os dados iniciais para criar o documento na nuvem
+            this.salvar(estado);
+          }
+        }, (erro) => {
+          console.error('Erro na sincronização com o Firestore:', erro);
+          atualizarStatusNuvem('<i class="fa-solid fa-triangle-exclamation text-amber-400"></i>', 'Aguardando ativar Firestore');
+        });
+      }
+    };
+
+    let estado = Armazenamento.obter();
+    let abaAtiva = 'dashboard';
+
+    function navegar(aba) {
+      abaAtiva = aba;
+      ['dashboard', 'produtos', 'ingredientes', 'despesas'].forEach(a => {
+        const b = document.getElementById('btn-' + a);
+        if (b) {
+          b.className = a === aba
+            ? "w-full flex items-center space-x-3 p-3 rounded-lg bg-caramelo text-white transition text-sm font-medium"
+            : "w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-caramelo/30 transition text-sm font-medium";
+        }
+      });
+      renderizar();
+    }
+
+    // Cálculos de Precificação
+    function calcularTotaisReceita(produto) {
+      let custoIngredientes = 0;
+      (produto.itens || []).forEach(item => {
+        const ing = estado.ingredientes.find(i => i.id === item.ingredienteId);
+        if (ing) custoIngredientes += (Number(item.quantidade) * Number(ing.custoUnit));
+      });
+
+      const taxaPerda = 1 + (Number(produto.taxaDesperdicio || 0) / 100);
+      const custoTotalIng = custoIngredientes * taxaPerda;
+      const rendimento = Number(produto.rendimento) > 0 ? Number(produto.rendimento) : 1;
+
+      const totalDespesas = estado.despesas.reduce((acc, d) => acc + Number(d.valor || 0), 0);
+      const rateioUnit = estado.config.unidadesMes > 0 ? (totalDespesas / estado.config.unidadesMes) : 0;
+      const maoDeObraUnit = (((Number(produto.tempoMinutos || 0)) / 60) * estado.config.custoHora) / rendimento;
+      const embalagemUnit = Number(produto.custoEmbalagem || 0);
+
+      const custoUnitIngredientes = custoTotalIng / rendimento;
+      const custoTotalUnitario = custoUnitIngredientes + embalagemUnit + maoDeObraUnit + rateioUnit;
+
+      const taxas = (Number(produto.taxaCartao || 0) + Number(produto.impostos || 0)) / 100;
+      const margem = Number(produto.margemDesejada || 0) / 100;
+      const divisor = 1 - margem - taxas;
+
+      const precoSugerido = divisor > 0.05 ? (custoTotalUnitario / divisor) : (custoTotalUnitario * 1.5);
+      const lucroUnitario = precoSugerido - custoTotalUnitario - (precoSugerido * taxas);
+      const margemReal = precoSugerido > 0 ? (lucroUnitario / precoSugerido) * 100 : 0;
+
+      return {
+        custoTotalIng,
+        custoUnitIngredientes,
+        custoTotalUnitario,
+        rateioUnit,
+        maoDeObraUnit,
+        precoSugerido,
+        lucroUnitario,
+        margemReal
+      };
+    }
+
+    // Gerenciamento de Despesas
+    function atualizarValorDespesa(id, novoValor) {
+      const d = estado.despesas.find(item => item.id === id);
+      if (d) {
+        d.valor = Number(novoValor) || 0;
+        Armazenamento.salvar(estado);
+        atualizarResumoDespesas();
+      }
+    }
+
+    function adicionarNovaDespesa(e) {
+      e.preventDefault();
+      const nome = document.getElementById('desp-nome').value.trim();
+      const valor = Number(document.getElementById('desp-valor').value);
+
+      if (!nome || valor <= 0) {
+        alert('Informe um nome e um valor válido.');
+        return;
+      }
+
+      estado.despesas.push({
+        id: Date.now().toString(),
+        nome,
+        valor
+      });
+
+      Armazenamento.salvar(estado);
+      document.getElementById('desp-nome').value = '';
+      document.getElementById('desp-valor').value = '';
+      renderizar();
+    }
+
+    function removerDespesa(id) {
+      if (confirm('Deseja excluir esta despesa?')) {
+        estado.despesas = estado.despesas.filter(d => d.id !== id);
+        Armazenamento.salvar(estado);
+        renderizar();
+      }
+    }
+
+    function atualizarConfigRateio() {
+      const unidades = Number(document.getElementById('cfg-unidades').value);
+      const hora = Number(document.getElementById('cfg-hora').value);
+
+      if (unidades > 0) estado.config.unidadesMes = unidades;
+      if (hora >= 0) estado.config.custoHora = hora;
+
+      Armazenamento.salvar(estado);
+      atualizarResumoDespesas();
+    }
+
+    function atualizarResumoDespesas() {
+      const total = estado.despesas.reduce((acc, d) => acc + Number(d.valor || 0), 0);
+      const rateio = estado.config.unidadesMes > 0 ? (total / estado.config.unidadesMes) : 0;
+
+      const elTotal = document.getElementById('desp-total-exibicao');
+      const elRateio = document.getElementById('desp-rateio-exibicao');
+      if (elTotal) elTotal.innerText = formatBRL(total);
+      if (elRateio) elRateio.innerText = formatBRL(rateio);
+    }
+
+    // Gerenciamento de Ingredientes
+    function adicionarIngrediente(e) {
+      e.preventDefault();
+      const nome = document.getElementById('ing-nome').value.trim();
+      const categoria = document.getElementById('ing-categoria').value;
+      const tipoUnidade = document.getElementById('ing-tipo-unidade').value;
+      const precoPago = Number(document.getElementById('ing-preco').value);
+      const qtdComprada = Number(document.getElementById('ing-qtd').value);
+
+      let custoUnit = 0;
+      let unMedida = 'g';
+
+      if (tipoUnidade === 'kg') {
+        custoUnit = precoPago / (qtdComprada * 1000);
+        unMedida = 'g';
+      } else if (tipoUnidade === 'l') {
+        custoUnit = precoPago / (qtdComprada * 1000);
+        unMedida = 'ml';
+      } else {
+        custoUnit = precoPago / qtdComprada;
+        unMedida = tipoUnidade;
+      }
+
+      estado.ingredientes.push({
+        id: Date.now().toString(),
+        nome,
+        categoria,
+        custoUnit,
+        unMedida
+      });
+
+      Armazenamento.salvar(estado);
+      renderizar();
+    }
+
+    function removerIngrediente(id) {
+      if (confirm('Deseja eliminar este ingrediente?')) {
+        estado.ingredientes = estado.ingredientes.filter(i => i.id !== id);
+        Armazenamento.salvar(estado);
+        renderizar();
+      }
+    }
+
+    // Gerenciamento de Receitas
+    let itensReceitaTemporaria = [];
+
+    function adicionarItemNaReceita() {
+      const ingId = document.getElementById('rec-item-ingrediente').value;
+      const qtd = Number(document.getElementById('rec-item-qtd').value);
+
+      if (!ingId || qtd <= 0) {
+        alert('Selecione um ingrediente e informe a quantidade.');
+        return;
+      }
+
+      const ing = estado.ingredientes.find(i => i.id === ingId);
+      itensReceitaTemporaria.push({
+        ingredienteId: ingId,
+        nome: ing.nome,
+        unMedida: ing.unMedida,
+        quantidade: qtd
+      });
+
+      atualizarTabelaTemporariaReceita();
+      document.getElementById('rec-item-qtd').value = '';
+    }
+
+    function removerItemReceitaTemporaria(index) {
+      itensReceitaTemporaria.splice(index, 1);
+      atualizarTabelaTemporariaReceita();
+    }
+
+    function atualizarTabelaTemporariaReceita() {
+      const lista = document.getElementById('lista-itens-receita');
+      if (!lista) return;
+
+      if (itensReceitaTemporaria.length === 0) {
+        lista.innerHTML = `<p class="text-sm text-cacau/50 italic py-2">Nenhum ingrediente adicionado à receita ainda.</p>`;
+        return;
+      }
+
+      lista.innerHTML = itensReceitaTemporaria.map((it, idx) => `
+        <div class="flex justify-between items-center bg-white p-2.5 rounded border border-rosaSuave/40 text-sm mb-2">
+          <span><strong>${it.nome}</strong>: ${it.quantidade} ${it.unMedida}</span>
+          <button type="button" onclick="removerItemReceitaTemporaria(${idx})" class="text-red-500 hover:text-red-700 text-xs font-semibold">
+            <i class="fa-solid fa-trash mr-1"></i>Remover
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function salvarNovaReceita(e) {
+      e.preventDefault();
+      if (itensReceitaTemporaria.length === 0) {
+        alert('Adicione pelo menos um ingrediente na receita antes de salvar.');
+        return;
+      }
+
+      const novoProduto = {
+        id: Date.now().toString(),
+        nome: document.getElementById('rec-nome').value.trim(),
+        rendimento: Number(document.getElementById('rec-rendimento').value) || 1,
+        tempoMinutos: Number(document.getElementById('rec-tempo').value) || 0,
+        taxaDesperdicio: Number(document.getElementById('rec-desperdicio').value) || 0,
+        custoEmbalagem: Number(document.getElementById('rec-embalagem').value) || 0,
+        margemDesejada: Number(document.getElementById('rec-margem').value) || 30,
+        taxaCartao: Number(document.getElementById('rec-taxa-cartao').value) || 0,
+        impostos: Number(document.getElementById('rec-impostos').value) || 0,
+        itens: [...itensReceitaTemporaria]
+      };
+
+      estado.produtos.push(novoProduto);
+      Armazenamento.salvar(estado);
+      itensReceitaTemporaria = [];
+      alert('Receita gravada com sucesso!');
+      navegar('produtos');
+    }
+
+    function removerProduto(id) {
+      if (confirm('Deseja excluir esta receita?')) {
+        estado.produtos = estado.produtos.filter(p => p.id !== id);
+        Armazenamento.salvar(estado);
+        renderizar();
+      }
+    }
+
+    // Renderização
+    function renderizar() {
+      const el = document.getElementById('app-view');
+
+      if (abaAtiva === 'dashboard') {
+        const totalDespesas = estado.despesas.reduce((acc, d) => acc + Number(d.valor || 0), 0);
+        const rateio = estado.config.unidadesMes > 0 ? (totalDespesas / estado.config.unidadesMes) : 0;
+
+        let produtosLinhas = estado.produtos.map(p => {
+          const c = calcularTotaisReceita(p);
+          return `
+            <tr>
+              <td class="p-3 font-semibold">${p.nome}</td>
+              <td class="p-3 text-red-600 font-bold">${formatBRL(c.custoTotalUnitario)}</td>
+              <td class="p-3 text-emerald-700 font-bold">${formatBRL(c.precoSugerido)}</td>
+              <td class="p-3 text-emerald-600 font-bold">${formatBRL(c.lucroUnitario)}</td>
+              <td class="p-3">${c.margemReal.toFixed(1)}%</td>
+            </tr>
+          `;
+        }).join('');
+
+        el.innerHTML = `
+          <div class="space-y-6">
+            <h2 class="text-2xl font-bold text-cacau">Painel Geral</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div class="bg-white p-5 rounded-xl border border-rosaSuave/50 shadow-sm">
+                <p class="text-xs uppercase text-cacau/60 font-semibold">Receitas Guardadas</p>
+                <p class="text-2xl font-bold mt-1 text-cacau">${estado.produtos.length}</p>
+              </div>
+              <div class="bg-white p-5 rounded-xl border border-rosaSuave/50 shadow-sm">
+                <p class="text-xs uppercase text-cacau/60 font-semibold">Ingredientes</p>
+                <p class="text-2xl font-bold mt-1 text-cacau">${estado.ingredientes.length}</p>
+              </div>
+              <div class="bg-white p-5 rounded-xl border border-rosaSuave/50 shadow-sm">
+                <p class="text-xs uppercase text-cacau/60 font-semibold">Despesas Mensais</p>
+                <p class="text-2xl font-bold mt-1 text-rosaDoceria">${formatBRL(totalDespesas)}</p>
+              </div>
+              <div class="bg-white p-5 rounded-xl border border-rosaSuave/50 shadow-sm">
+                <p class="text-xs uppercase text-cacau/60 font-semibold">Custo Fixo por Unidade</p>
+                <p class="text-2xl font-bold mt-1 text-caramelo">${formatBRL(rateio)}</p>
+              </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl border border-rosaSuave/50 shadow-sm">
+              <h3 class="font-bold text-lg mb-4 text-cacau">Resumo de Precificação</h3>
+              ${estado.produtos.length === 0 ? `
+                <p class="text-sm text-cacau/60">Ainda não cadastrou nenhuma receita. Vá até a aba <strong>"Receitas & Produtos"</strong> para criar o seu primeiro produto.</p>
+              ` : `
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-sm">
+                    <thead class="bg-creme text-xs uppercase text-cacau">
+                      <tr>
+                        <th class="p-3">Produto</th>
+                        <th class="p-3">Custo Unitário</th>
+                        <th class="p-3">Preço Sugerido</th>
+                        <th class="p-3">Lucro Real</th>
+                        <th class="p-3">Margem Efetiva</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-rosaSuave/40">
+                      ${produtosLinhas}
+                    </tbody>
+                  </table>
+                </div>
+              `}
+            </div>
+          </div>
+        `;
+      } 
+      else if (abaAtiva === 'despesas') {
+        const total = estado.despesas.reduce((acc, d) => acc + Number(d.valor || 0), 0);
+        const rateio = estado.config.unidadesMes > 0 ? (total / estado.config.unidadesMes) : 0;
+
+        const listaDespesasInputs = estado.despesas.map(d => `
+          <div class="flex items-center justify-between p-3 bg-creme/40 rounded-lg border border-rosaSuave/30 gap-4">
+            <span class="font-semibold text-sm flex-1">${d.nome}</span>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs text-cacau/60 font-bold">R$</span>
+              <input 
+                type="number" 
+                step="0.01" 
+                value="${d.valor}" 
+                onchange="atualizarValorDespesa('${d.id}', this.value)" 
+                class="w-28 p-2 border rounded bg-white text-right font-bold text-sm focus:outline-caramelo"
+              >
+              <button onclick="removerDespesa('${d.id}')" class="text-red-400 hover:text-red-600 p-2 text-sm" title="Excluir despesa">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </div>
+        `).join('');
+
+        el.innerHTML = `
+          <div class="space-y-6">
+            <h2 class="text-2xl font-bold text-cacau">Despesas & Regras de Rateio</h2>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              <!-- Gerenciador de Contas -->
+              <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-rosaSuave/50 shadow-sm space-y-4">
+                <div class="flex justify-between items-center border-b pb-3">
+                  <div>
+                    <h3 class="font-bold text-lg text-cacau">Contas do Estabelecimento</h3>
+                    <p class="text-xs text-cacau/60">Edite os valores diretamente nos campos abaixo (salva automaticamente)</p>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-xs uppercase text-cacau/60 font-bold">Total Mensal</span>
+                    <p id="desp-total-exibicao" class="text-xl font-black text-rosaDoceria">${formatBRL(total)}</p>
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  ${listaDespesasInputs}
+                </div>
+
+                <!-- Adicionar Nova Despesa -->
+                <div class="pt-4 border-t">
+                  <h4 class="font-semibold text-sm mb-3 text-cacau"><i class="fa-solid fa-plus-circle mr-2 text-caramelo"></i>Adicionar Outra Despesa</h4>
+                  <form onsubmit="adicionarNovaDespesa(event)" class="flex flex-col sm:flex-row gap-3">
+                    <input id="desp-nome" required placeholder="Ex: Manutenção de Batedeira, Limpeza..." class="flex-1 border rounded p-2.5 bg-creme/20 text-sm focus:outline-caramelo">
+                    <input id="desp-valor" type="number" step="0.01" required placeholder="Valor (R$)" class="w-full sm:w-36 border rounded p-2.5 bg-creme/20 text-sm focus:outline-caramelo">
+                    <button type="submit" class="bg-cacau hover:bg-caramelo text-white font-bold py-2.5 px-4 rounded text-sm transition">
+                      Adicionar
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              <!-- Parâmetros de Rateio -->
+              <div class="bg-white p-6 rounded-xl border border-rosaSuave/50 shadow-sm space-y-4">
+                <h3 class="font-bold text-lg text-cacau">Cálculo de Rateio</h3>
+                <p class="text-xs text-cacau/70 leading-relaxed">
+                  As despesas fixas não são cobradas inteiras de cada produto. O total é dividido pela sua estimativa de produção mensal.
+                </p>
+
+                <div class="space-y-4 text-sm pt-2">
+                  <div>
+                    <label class="block mb-1 font-semibold text-xs text-cacau/80">Capacidade de Produção/Venda no Mês (unidades)</label>
+                    <input 
+                      id="cfg-unidades" 
+                      type="number" 
+                      value="${estado.config.unidadesMes}" 
+                      onchange="atualizarConfigRateio()" 
+                      class="w-full border rounded p-2.5 bg-creme/20 font-bold focus:outline-caramelo"
+                    >
+                  </div>
+
+                  <div>
+                    <label class="block mb-1 font-semibold text-xs text-cacau/80">Valor da sua Hora de Trabalho (R$)</label>
+                    <input 
+                      id="cfg-hora" 
+                      type="number" 
+                      step="0.50" 
+                      value="${estado.config.custoHora}" 
+                      onchange="atualizarConfigRateio()" 
+                      class="w-full border rounded p-2.5 bg-creme/20 font-bold focus:outline-caramelo"
+                    >
+                  </div>
+
+                  <div class="bg-creme p-4 rounded-xl border border-rosaSuave/60 mt-4">
+                    <span class="text-xs uppercase font-bold text-cacau/60">Impacto Fixo por Unidade:</span>
+                    <p id="desp-rateio-exibicao" class="text-2xl font-black text-caramelo mt-1">${formatBRL(rateio)}</p>
+                    <p class="text-xs text-cacau/60 mt-1">Este valor é somado automaticamente no custo de cada doce ou fatia.</p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        `;
+      }
+      else if (abaAtiva === 'ingredientes') {
+        const linhasIng = estado.ingredientes.map(i => `
+          <tr>
+            <td class="p-3 font-semibold">${i.nome}</td>
+            <td class="p-3 text-cacau/70">${i.categoria}</td>
+            <td class="p-3 font-bold text-caramelo">${formatBRL(i.custoUnit)} / ${i.unMedida}</td>
+            <td class="p-3 text-right">
+              <button onclick="removerIngrediente('${i.id}')" class="text-red-500 hover:text-red-700 text-sm">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `).join('');
+
+        el.innerHTML = `
+          <div class="space-y-6">
+            <h2 class="text-2xl font-bold text-cacau">Banco de Ingredientes</h2>
+            
+            <div class="bg-white p-6 rounded-xl border border-rosaSuave/50 shadow-sm">
+              <h3 class="font-bold mb-4 text-cacau"><i class="fa-solid fa-plus-circle mr-2 text-caramelo"></i>Cadastrar Ingrediente</h3>
+              <form onsubmit="adicionarIngrediente(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <label class="block mb-1 font-semibold">Nome</label>
+                  <input id="ing-nome" required placeholder="Ex: Açúcar Refinado" class="w-full border rounded p-2.5 bg-creme/30 focus:outline-caramelo">
+                </div>
+                <div>
+                  <label class="block mb-1 font-semibold">Categoria</label>
+                  <select id="ing-categoria" class="w-full border rounded p-2.5 bg-creme/30 focus:outline-caramelo">
+                    <option>Chocolates</option>
+                    <option>Laticínios</option>
+                    <option>Farinhas & Secos</option>
+                    <option>Embalagens</option>
+                    <option>Frutas & Recheios</option>
+                    <option>Outros</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block mb-1 font-semibold">Comprado em</label>
+                  <select id="ing-tipo-unidade" class="w-full border rounded p-2.5 bg-creme/30 focus:outline-caramelo">
+                    <option value="g">Gramas (g)</option>
+                    <option value="kg">Quilos (kg)</option>
+                    <option value="ml">Mililitros (ml)</option>
+                    <option value="l">Litros (l)</option>
+                    <option value="un">Unidade (un)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block mb-1 font-semibold">Quantidade Comprada</label>
+                  <input id="ing-qtd" type="number" step="0.01" required placeholder="Ex: 1 ou 500" class="w-full border rounded p-2.5 bg-creme/30 focus:outline-caramelo">
+                </div>
+                <div>
+                  <label class="block mb-1 font-semibold">Preço Pago (R$)</label>
+                  <input id="ing-preco" type="number" step="0.01" required placeholder="Ex: 35.50" class="w-full border rounded p-2.5 bg-creme/30 focus:outline-caramelo">
+                </div>
+                <div class="flex items-end">
+                  <button type="submit" class="w-full bg-caramelo hover:bg-cacau text-white font-bold py-2.5 px-4 rounded transition">
+                    Salvar Ingrediente
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl border border-rosaSuave/50 shadow-sm overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="bg-creme text-xs uppercase text-cacau">
+                  <tr>
+                    <th class="p-3">Ingrediente</th>
+                    <th class="p-3">Categoria</th>
+                    <th class="p-3">Custo Unitário</th>
+                    <th class="p-3 text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-rosaSuave/40">
+                  ${linhasIng}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+      else if (abaAtiva === 'produtos') {
+        const opcoesIngredientes = estado.ingredientes.map(i => `
+          <option value="${i.id}">${i.nome} (${i.unMedida})</option>
+        `).join('');
+
+        let cardsProdutos = estado.produtos.map(p => {
+          const c = calcularTotaisReceita(p);
+          const detalheItens = (p.itens || []).map(it => {
+            const ing = estado.ingredientes.find(i => i.id === it.ingredienteId);
+            const custoItem = ing ? (Number(it.quantidade) * Number(ing.custoUnit)) : 0;
+            return `<li class="flex justify-between py-1 text-xs"><span>${it.nome}: ${it.quantidade} ${it.unMedida}</span> <span class="text-cacau/70">${formatBRL(custoItem)}</span></li>`;
+          }).join('');
+
+          return `
+            <div class="bg-white p-6 rounded-xl border border-rosaSuave/50 shadow-sm space-y-4">
+              <div class="flex justify-between items-start border-b pb-3">
+                <div>
+                  <h3 class="text-xl font-bold text-cacau">${p.nome}</h3>
+                  <p class="text-xs text-cacau/60">Rendimento: ${p.rendimento} un | Perdas: ${p.taxaDesperdicio}%</p>
+                </div>
+                <button onclick="removerProduto('${p.id}')" class="text-red-500 hover:text-red-700 text-sm font-semibold">
+                  <i class="fa-solid fa-trash mr-1"></i> Excluir
+                </button>
+              </div>
+
+              <div>
+                <p class="text-xs font-bold uppercase text-cacau/60 mb-1">Ingredientes Utilizados:</p>
+                <ul class="divide-y divide-creme bg-creme/40 p-3 rounded-lg">${detalheItens}</ul>
+              </div>
+
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2 bg-creme p-3 rounded-lg text-xs">
+                <div><span>Ingredientes p/ un:</span> <strong class="block text-sm">${formatBRL(c.custoUnitIngredientes)}</strong></div>
+                <div><span>Mão de Obra p/ un:</span> <strong class="block text-sm">${formatBRL(c.maoDeObraUnit)}</strong></div>
+                <div><span>Rateio Despesas p/ un:</span> <strong class="block text-sm">${formatBRL(c.rateioUnit)}</strong></div>
+                <div><span>Custo Total Unitário:</span> <strong class="block text-sm text-red-600">${formatBRL(c.custoTotalUnitario)}</strong></div>
+              </div>
+
+              <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-lg flex flex-col md:flex-row justify-between items-center text-emerald-900">
+                <div>
+                  <p class="text-xs font-semibold">Preço Sugerido (com Margem de ${p.margemDesejada}%):</p>
+                  <p class="text-2xl font-black">${formatBRL(c.precoSugerido)}</p>
+                </div>
+                <div class="text-right mt-2 md:mt-0">
+                  <p class="text-xs">Lucro Líquido Unitário:</p>
+                  <p class="text-lg font-bold">${formatBRL(c.lucroUnitario)} (${c.margemReal.toFixed(1)}%)</p>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        el.innerHTML = `
+          <div class="space-y-6">
+            <h2 class="text-2xl font-bold text-cacau">Cadastro de Receitas</h2>
+
+            <div class="bg-white p-6 rounded-xl border border-rosaSuave/50 shadow-sm space-y-4">
+              <h3 class="font-bold text-lg text-cacau"><i class="fa-solid fa-utensils mr-2 text-caramelo"></i>Criar Nova Ficha Técnica</h3>
+              <form onsubmit="salvarNovaReceita(event)" class="space-y-4 text-sm">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label class="block mb-1 font-semibold">Nome do Produto</label>
+                    <input id="rec-nome" required placeholder="Ex: Bolo no Pote Ninho com Nutella" class="w-full border rounded p-2.5 bg-creme/30 focus:outline-caramelo">
+                  </div>
+                  <div>
+                    <label class="block mb-1 font-semibold">Rendimento (unidades)</label>
+                    <input id="rec-rendimento" type="number" required placeholder="Ex: 15" class="w-full border rounded p-2.5 bg-creme/30 focus:outline-caramelo">
+                  </div>
+                  <div>
+                    <label class="block mb-1 font-semibold">Tempo de Preparo (minutos)</label>
+                    <input id="rec-tempo" type="number" placeholder="Ex: 50" class="w-full border rounded p-2.5 bg-creme/30 focus:outline-caramelo">
+                  </div>
+                </div>
+
+                <div class="bg-creme/60 p-4 rounded-lg border border-rosaSuave/60 space-y-3">
+                  <h4 class="font-semibold text-cacau text-xs uppercase tracking-wider">Ingredientes da Receita</h4>
+                  <div class="flex flex-col md:flex-row gap-3">
+                    <div class="flex-1">
+                      <select id="rec-item-ingrediente" class="w-full border rounded p-2.5 bg-white focus:outline-caramelo">
+                        <option value="">Selecione um ingrediente cadastrado...</option>
+                        ${opcoesIngredientes}
+                      </select>
+                    </div>
+                    <div class="w-full md:w-48">
+                      <input id="rec-item-qtd" type="number" step="0.01" placeholder="Quantidade usada" class="w-full border rounded p-2.5 bg-white focus:outline-caramelo">
+                    </div>
+                    <button type="button" onclick="adicionarItemNaReceita()" class="bg-cacau text-white px-4 py-2.5 rounded hover:bg-caramelo transition font-semibold text-xs">
+                      + Incluir
+                    </button>
+                  </div>
+                  <div id="lista-itens-receita">
+                    <p class="text-sm text-cacau/50 italic py-2">Nenhum ingrediente adicionado à receita ainda.</p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div>
+                    <label class="block mb-1 text-xs font-semibold">Desperdício (%)</label>
+                    <input id="rec-desperdicio" type="number" step="0.1" value="2" class="w-full border rounded p-2 bg-creme/30">
+                  </div>
+                  <div>
+                    <label class="block mb-1 text-xs font-semibold">Embalagem p/ un (R$)</label>
+                    <input id="rec-embalagem" type="number" step="0.01" value="0.80" class="w-full border rounded p-2 bg-creme/30">
+                  </div>
+                  <div>
+                    <label class="block mb-1 text-xs font-semibold">Margem Lucro (%)</label>
+                    <input id="rec-margem" type="number" step="0.1" value="35" class="w-full border rounded p-2 bg-creme/30">
+                  </div>
+                  <div>
+                    <label class="block mb-1 text-xs font-semibold">Taxa de Cartão (%)</label>
+                    <input id="rec-taxa-cartao" type="number" step="0.1" value="3.5" class="w-full border rounded p-2 bg-creme/30">
+                  </div>
+                  <div>
+                    <label class="block mb-1 text-xs font-semibold">Impostos (%)</label>
+                    <input id="rec-impostos" type="number" step="0.1" value="4.0" class="w-full border rounded p-2 bg-creme/30">
+                  </div>
+                </div>
+
+                <button type="submit" class="w-full bg-caramelo hover:bg-cacau text-white font-bold py-3 rounded-lg transition">
+                  Salvar Receita & Calcular Preço
+                </button>
+              </form>
+            </div>
+
+            <div class="space-y-4">
+              <h3 class="font-bold text-lg text-cacau">Receitas Cadastradas</h3>
+              ${estado.produtos.length === 0 ? '<p class="text-sm text-cacau/60">Ainda não há receitas adicionadas.</p>' : cardsProdutos}
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    renderizar();
+    Armazenamento.iniciarSincronizacao();
+  </script>
+</body>
+</html>
